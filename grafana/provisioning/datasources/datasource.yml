@@ -11,6 +11,7 @@ deleteDatasources:
 datasources:
   # <string, required> name of the datasource. Required
   - name: Prometheus
+    uid: PBFA97CFB590B2093
     # <string, required> datasource type. Required
     type: prometheus
     # <string, required> access mode. direct or proxy. Required
