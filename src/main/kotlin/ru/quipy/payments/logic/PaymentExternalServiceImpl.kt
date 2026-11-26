@@ -45,6 +45,7 @@ class PaymentExternalSystemAdapterImpl(
     private val parallelRequests = properties.parallelRequests
 
     private val client = OkHttpClient.Builder()
+        .retryOnConnectionFailure(false)
         .connectTimeout(Duration.ofSeconds(1))
         .dispatcher(Dispatcher().apply {
             val permits = parallelRequests.coerceAtLeast(1)
@@ -99,16 +100,17 @@ class PaymentExternalSystemAdapterImpl(
     }
 
     private fun post(transactionId: UUID, paymentId: UUID, amount: Int, deadline: Long, retry: Boolean, retryAfterTimeout: Boolean): Attempt {
-        val request = Request.Builder().run {
-            url("http://$paymentProviderHostPort/external/process?serviceName=$serviceName&token=$token&accountName=$accountName&transactionId=$transactionId&paymentId=$paymentId&amount=$amount")
-            post(emptyBody)
-        }.build()
         while (!rateLimiter.tick()) {
             val pause = min(20L, deadline - now())
             if (pause <= 0) return Attempt(false, true, "rate limit left no time before deadline", 0)
             Thread.sleep(pause)
         }
         val remaining = Duration.ofMillis(min(requestTimeout.toMillis(), deadline - now()).coerceAtLeast(1))
+        val processingTimeout = Duration.ofMillis((remaining.toMillis() - 100).coerceAtLeast(1))
+        val request = Request.Builder().run {
+            url("http://$paymentProviderHostPort/external/process?serviceName=$serviceName&token=$token&accountName=$accountName&transactionId=$transactionId&paymentId=$paymentId&amount=$amount&timeout=$processingTimeout")
+            post(emptyBody)
+        }.build()
         val callClient = client.newBuilder().callTimeout(remaining).readTimeout(remaining).build()
         attempts.increment()
         if (retry) retries.increment()
