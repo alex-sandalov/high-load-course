@@ -29,12 +29,326 @@
   "liveNow": true,
   "panels": [
     {
+      "id": 107,
+      "title": "бульк",
+      "type": "row",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "id": 105,
+      "title": "Sent attempts / error responses in selected range",
+      "description": "Counts in the selected range. Uses counter difference without resets and reset-aware increase otherwise. Include scrapes before and after a run; counts across resets are estimates.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 12,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none",
+        "colorMode": "none",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (account) (((payment_attempts_total{service=~\"$service\"} - payment_attempts_total{service=~\"$service\"} offset $__range) and (resets(payment_attempts_total{service=~\"$service\"}[$__range]) == 0)) or increase(payment_attempts_total{service=~\"$service\"}[$__range]))",
+          "legendFormat": "sent attempts",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (account) (((payment_response_errors_total{service=~\"$service\"} - payment_response_errors_total{service=~\"$service\"} offset $__range) and (resets(payment_response_errors_total{service=~\"$service\"}[$__range]) == 0)) or increase(payment_response_errors_total{service=~\"$service\"}[$__range]))",
+          "legendFormat": "error responses",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 106,
+      "title": "Retries after timeout / client HTTP 429 in selected range",
+      "description": "Counts in the selected range. Uses counter difference without resets and reset-aware increase otherwise. Include scrapes before and after a run; counts across resets are estimates.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 1,
+        "w": 12,
+        "h": 4
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "decimals": 0,
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none",
+        "colorMode": "none",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (account) (((payment_timeout_retries_total{service=~\"$service\"} - payment_timeout_retries_total{service=~\"$service\"} offset $__range) and (resets(payment_timeout_retries_total{service=~\"$service\"}[$__range]) == 0)) or increase(payment_timeout_retries_total{service=~\"$service\"}[$__range]))",
+          "legendFormat": "retries after timeout",
+          "instant": true,
+          "range": false
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (service) (((payment_client_rejections_total{service=~\"$service\"} - payment_client_rejections_total{service=~\"$service\"} offset $__range) and (resets(payment_client_rejections_total{service=~\"$service\"}[$__range]) == 0)) or increase(payment_client_rejections_total{service=~\"$service\"}[$__range]))",
+          "legendFormat": "client HTTP 429",
+          "instant": true,
+          "range": false
+        }
+      ]
+    },
+    {
+      "id": 108,
+      "title": "Average",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 5,
+        "w": 24,
+        "h": 3
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0,
+          "decimals": 2
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "graphMode": "none",
+        "colorMode": "none",
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (account) (increase((payment_request_duration_seconds_sum{service=~\"$service\"} and (timestamp(payment_request_duration_seconds_sum{service=~\"$service\"}) >= ${__from:date:seconds}))[$__range:5s])) / sum by (account) (increase((payment_request_duration_seconds_count{service=~\"$service\"} and (timestamp(payment_request_duration_seconds_count{service=~\"$service\"}) >= ${__from:date:seconds}))[$__range:5s]))",
+          "legendFormat": "Average",
+          "instant": true,
+          "range": false,
+          "interval": "5s"
+        }
+      ],
+      "description": "Итоговое среднее время HTTP-попытки за весь выбранный интервал, включая таймауты. Ожидание очереди и rate limiter не входит."
+    },
+    {
+      "id": 103,
+      "title": "Request duration: quantiles and average",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 24,
+        "h": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "calcs": []
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "payment_request_duration_seconds{service=~\"$service\"}",
+          "legendFormat": "p{{quantile}}",
+          "range": true,
+          "interval": "5s"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (account) (increase((payment_request_duration_seconds_sum{service=~\"$service\"} and (timestamp(payment_request_duration_seconds_sum{service=~\"$service\"}) >= ${__from:date:seconds}))[$__range:5s])) / sum by (account) (increase((payment_request_duration_seconds_count{service=~\"$service\"} and (timestamp(payment_request_duration_seconds_count{service=~\"$service\"}) >= ${__from:date:seconds}))[$__range:5s]))",
+          "legendFormat": "Average",
+          "range": true,
+          "interval": "5s"
+        }
+      ],
+      "description": "Среднее включает завершённые попытки от начала выбранного интервала до текущей точки, включая таймауты. После завершения прогона среднее не пересчитывается только по последним медленным попыткам. Квантили сохраняют временное окно самой метрики."
+    },
+    {
+      "id": 102,
+      "title": "Retries / timeouts / client HTTP 429 per second",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (account) (rate(payment_retries_total{service=~\"$service\"}[30s]))",
+          "legendFormat": "retries",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (account) (rate(payment_timeouts_total{service=~\"$service\"}[30s]))",
+          "legendFormat": "timeouts",
+          "range": true
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (account) (rate(payment_timeout_retries_total{service=~\"$service\"}[30s]))",
+          "legendFormat": "retries after timeout",
+          "range": true
+        },
+        {
+          "refId": "D",
+          "expr": "sum by (service) (rate(payment_client_rejections_total{service=~\"$service\"}[30s]))",
+          "legendFormat": "client HTTP 429",
+          "range": true
+        }
+      ]
+    },
+    {
+      "id": 104,
+      "title": "Sent attempts / error responses per second",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "PBFA97CFB590B2093"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 17,
+        "w": 12,
+        "h": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (account) (rate(payment_attempts_total{service=~\"$service\"}[30s]))",
+          "legendFormat": "sent attempts",
+          "range": true
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (account) (rate(payment_response_errors_total{service=~\"$service\"}[30s]))",
+          "legendFormat": "error responses",
+          "range": true
+        }
+      ]
+    },
+    {
       "collapsed": true,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 0
+        "y": 26
       },
       "id": 27,
       "panels": [
@@ -639,7 +953,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 1
+        "y": 27
       },
       "id": 10,
       "panels": [
@@ -985,7 +1299,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 2
+        "y": 28
       },
       "id": 12,
       "panels": [
@@ -1378,7 +1692,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 3
+        "y": 29
       },
       "id": 17,
       "panels": [
@@ -2103,7 +2417,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 4
+        "y": 30
       },
       "id": 21,
       "panels": [
@@ -2411,7 +2725,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 5
+        "y": 31
       },
       "id": 38,
       "panels": [
@@ -2916,7 +3230,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 6
+        "y": 32
       },
       "id": 97,
       "panels": [

@@ -1,5 +1,6 @@
 package ru.quipy.apigateway
 
+import io.micrometer.core.instrument.MeterRegistry
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -18,6 +19,8 @@ import java.util.concurrent.TimeUnit
 class APIController(
     private val orderRepository: OrderRepository,
     private val orderPayer: OrderPayer,
+    meterRegistry: MeterRegistry,
+    @Value("\${payment.service-name}") serviceName: String,
     @Value("\${payment.admission.rate-per-second}") admissionRate: Int,
     @Value("\${payment.admission.capacity}") admissionCapacity: Int,
     @param:Value("\${payment.admission.retry-after-seconds}") private val retryAfterSeconds: Int,
@@ -26,6 +29,7 @@ class APIController(
     val logger: Logger = LoggerFactory.getLogger(APIController::class.java)
 
     private val paymentAdmission = TokenBucketRateLimiter(admissionRate, admissionCapacity, 1, TimeUnit.SECONDS)
+    private val clientRejections = meterRegistry.counter("payment.client.rejections", "service", serviceName)
 
     @PostMapping("/users")
     fun createUser(@RequestBody req: CreateUserRequest): User {
@@ -79,8 +83,10 @@ class APIController(
     )
 
     @ExceptionHandler(RejectedExecutionException::class)
-    fun paymentRejected(): ResponseEntity<Map<String, String>> =
-        ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+    fun paymentRejected(): ResponseEntity<Map<String, String>> {
+        clientRejections.increment()
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
             .header(HttpHeaders.RETRY_AFTER, retryAfterSeconds.toString())
             .body(mapOf("message" to "Payment capacity reached. Retry later."))
+    }
 }

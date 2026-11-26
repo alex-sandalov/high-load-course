@@ -2,6 +2,8 @@ package ru.quipy.payments.logic
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
+import io.micrometer.core.instrument.MeterRegistry
+import io.micrometer.core.instrument.Timer
 import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -15,6 +17,7 @@ import java.io.InterruptedIOException
 import java.net.SocketTimeoutException
 import java.time.Duration
 import java.util.*
+import java.util.concurrent.TimeUnit
 import kotlin.math.min
 
 
@@ -24,6 +27,8 @@ class PaymentExternalSystemAdapterImpl(
     private val paymentESService: EventSourcingService<UUID, PaymentAggregate, PaymentAggregateState>,
     private val paymentProviderHostPort: String,
     private val token: String,
+    private val requestTimeout: Duration,
+    meterRegistry: MeterRegistry,
 ) : PaymentExternalSystemAdapter {
 
     companion object {
@@ -49,11 +54,21 @@ class PaymentExternalSystemAdapterImpl(
         .build()
     private val rateLimiter = SlidingWindowRateLimiter(rateLimitPerSec.toLong(), Duration.ofMillis(1_020))
     private val ongoingWindow = OngoingWindow(parallelRequests)
+    private val attempts = meterRegistry.counter("payment.attempts", "service", serviceName, "account", accountName)
+    private val responseErrors = meterRegistry.counter("payment.response.errors", "service", serviceName, "account", accountName)
+    private val retries = meterRegistry.counter("payment.retries", "service", serviceName, "account", accountName)
+    private val timeoutRetries = meterRegistry.counter("payment.timeout.retries", "service", serviceName, "account", accountName)
+    private val timeouts = meterRegistry.counter("payment.timeouts", "service", serviceName, "account", accountName)
+    private val requestDuration = Timer.builder("payment.request.duration")
+        .tags("service", serviceName, "account", accountName)
+        .publishPercentiles(0.5, 0.85, 0.95, 0.99)
+        .register(meterRegistry)
 
     override fun performPaymentAsync(paymentId: UUID, amount: Int, paymentStartedAt: Long, deadline: Long) {
-        val reserve = requestAverageProcessingTime.toMillis().coerceAtLeast(1)
+        val reserve = min(requestAverageProcessingTime.toMillis(), requestTimeout.toMillis())
         var sent = false
-        repeat(3) {
+        var retryAfterTimeout = false
+        repeat(3) { attemptNumber ->
             if (now() + reserve > deadline) {
                 if (!sent) close(paymentId, paymentStartedAt, false, "deadline exceeded before submit")
                 return
@@ -66,7 +81,8 @@ class PaymentExternalSystemAdapterImpl(
                     it.logSubmission(true, transactionId, submittedAt, Duration.ofMillis(submittedAt - paymentStartedAt))
                 }
                 sent = true
-                val attempt = post(transactionId, paymentId, amount, deadline)
+                val attempt = post(transactionId, paymentId, amount, deadline, attemptNumber > 0, retryAfterTimeout)
+                retryAfterTimeout = attempt.timedOut
                 paymentESService.update(paymentId) {
                     it.logProcessing(attempt.ok, now(), transactionId, attempt.reason)
                 }
@@ -82,7 +98,7 @@ class PaymentExternalSystemAdapterImpl(
         }
     }
 
-    private fun post(transactionId: UUID, paymentId: UUID, amount: Int, deadline: Long): Attempt {
+    private fun post(transactionId: UUID, paymentId: UUID, amount: Int, deadline: Long, retry: Boolean, retryAfterTimeout: Boolean): Attempt {
         val request = Request.Builder().run {
             url("http://$paymentProviderHostPort/external/process?serviceName=$serviceName&token=$token&accountName=$accountName&transactionId=$transactionId&paymentId=$paymentId&amount=$amount")
             post(emptyBody)
@@ -92,8 +108,12 @@ class PaymentExternalSystemAdapterImpl(
             if (pause <= 0) return Attempt(false, true, "rate limit left no time before deadline", 0)
             Thread.sleep(pause)
         }
-        val remaining = Duration.ofMillis((deadline - now()).coerceAtLeast(1))
+        val remaining = Duration.ofMillis(min(requestTimeout.toMillis(), deadline - now()).coerceAtLeast(1))
         val callClient = client.newBuilder().callTimeout(remaining).readTimeout(remaining).build()
+        attempts.increment()
+        if (retry) retries.increment()
+        if (retryAfterTimeout) timeoutRetries.increment()
+        val started = System.nanoTime()
         return try {
             callClient.newCall(request).execute().use { response ->
                 val retryAfter = response.header("Retry-After")?.toLongOrNull()?.times(1_000)
@@ -102,12 +122,15 @@ class PaymentExternalSystemAdapterImpl(
                     response.code in setOf(400, 401, 403, 404, 405) -> Attempt(false, false, "HTTP ${response.code}", 0)
                     response.code == 408 || response.code >= 500 -> Attempt(false, true, "HTTP ${response.code}", retryAfter ?: 200)
                     else -> readBody(response, transactionId, paymentId)
-                }
+                }.also { if (!response.isSuccessful || !it.ok) responseErrors.increment() }
             }
         } catch (e: Exception) {
             val timedOut = e is SocketTimeoutException || e is InterruptedIOException
+            if (timedOut) timeouts.increment()
             if (!timedOut) logger.error("[$accountName] Payment failed for txId: $transactionId, payment: $paymentId", e)
-            Attempt(false, true, if (timedOut) "Request timeout." else e.message, if (timedOut) 0 else 200)
+            Attempt(false, true, if (timedOut) "Request timeout." else e.message, if (timedOut) 0 else 200, timedOut)
+        } finally {
+            requestDuration.record(System.nanoTime() - started, TimeUnit.NANOSECONDS)
         }
     }
 
@@ -144,4 +167,4 @@ class PaymentExternalSystemAdapterImpl(
 
 public fun now() = System.currentTimeMillis()
 
-private data class Attempt(val ok: Boolean, val retry: Boolean, val reason: String?, val wait: Long)
+private data class Attempt(val ok: Boolean, val retry: Boolean, val reason: String?, val wait: Long, val timedOut: Boolean = false)
